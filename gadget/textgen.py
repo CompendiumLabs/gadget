@@ -1,6 +1,5 @@
 # text generation
 
-import numpy as np
 from transformers import AutoTokenizer
 
 from .loader import GgufFile
@@ -100,10 +99,10 @@ class TextChat(TextGen):
         self.history.append({'role': 'assistant', 'content': reply})
 
     def generate_chat(self, message, **kwargs):
-        tokens = []
-        for tok in self.stream_chat(message, **kwargs):
-            tokens += [tok]
-        return self.detokenize(tokens)
+        reply = ''
+        for chunk in self.stream_chat(message, **kwargs):
+            reply += chunk
+        return reply
 
 def test_logits(gguf_path, model_id, model_class=LlamaModel, batch_size=128, **kwargs):
     model = TextGen(gguf_path, model_id, model_class=model_class, batch_size=batch_size, **kwargs)

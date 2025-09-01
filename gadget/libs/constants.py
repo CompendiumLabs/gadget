@@ -55,6 +55,10 @@ class GGMLQuantizationType(IntEnum):
     F64     = 28
     IQ1_M   = 29
     BF16    = 30
+    TQ1_0   = 34
+    TQ2_0   = 35
+    MXFP4   = 39
+    COUNT   = 40
 
 # embed pooling types
 class LlamaPoolingType(IntEnum):

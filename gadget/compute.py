@@ -21,7 +21,6 @@ from .ggml import (
     ggml_backend_free,
     ggml_backend_alloc_ctx_tensors,
     ggml_backend_get_default_buffer_type,
-    ggml_backend_cpu_set_n_threads,
     ggml_backend_graph_compute,
     ggml_gallocr_new,
     ggml_gallocr_reserve,
@@ -29,7 +28,6 @@ from .ggml import (
     ggml_gallocr_free,
 )
 from .tensor import (
-    get_framework,
     get_tensor_name,
     get_tensor_info,
     create_tensor,
@@ -295,7 +293,6 @@ def test_torch(input_dim=256, output_dim=32, batch_size=16, qtype=T.F32, backend
 
     # define model function
     def test_model(ctx, par, ten):
-        n, m = par['input_dim'], par['output_dim']
         a, b, x = ten['a'], ten['b'], ten['x']
         x1 = ggml_mul_mat(ctx, a, x, name=f'x1')
         x2 = ggml_add(ctx, x1, b, name=f'x2')

@@ -1,9 +1,6 @@
 # bert implementation
 
-import numpy as np
-
 from ..ggml import (
-    ggml_add,
     ggml_add_inplace,
     ggml_get_rows,
     ggml_view_1d,
@@ -13,7 +10,6 @@ from ..ggml import (
 )
 from ..model import GgmlModel, Parameter, State, Tensor
 from .layers import (
-    linear_layer,
     norm_layer,
     attention_layer,
     feed_forward_layer,

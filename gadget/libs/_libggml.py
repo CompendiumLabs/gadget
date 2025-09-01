@@ -268,23 +268,18 @@ ggml_tensor._fields_ = [
     ("op"       , ctypes.c_int                           ),
     ("op_params", ctypes.c_int32 * GGML_MAX_OP_PARAMS_INT),
     ("flags"    , ctypes.c_int32                         ),
-    ("grad"     , ggml_tensor_p                          ),
     ("src"      , ggml_tensor_p * GGML_MAX_SRC           ),
     ("view_src" , ggml_tensor_p                          ),
     ("view_offs", ctypes.c_size_t                        ),
     ("data"     , ctypes.c_void_p                        ),
     ("name"     , ctypes.c_char * GGML_MAX_NAME          ),
     ("extra"    , ctypes.c_void_p                        ),
+    ("padding"  , ctypes.c_char * 8                      ),
 ]
 
 # types and quantization
 ggml_to_float_p          = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int64)
 ggml_from_float_p        = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p, ctypes.c_int64)
-ggml_from_float_to_mat_p = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64, ctypes.c_int64)
-ggml_vec_dot_p           = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
-ggml_vec_dot_p           = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
-ggml_gemv_p              = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
-ggml_gemm_p              = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 
 class ggml_type_traits(ctypes.Structure):
     _fields_ = [
@@ -294,15 +289,7 @@ class ggml_type_traits(ctypes.Structure):
         ("type_size"           , ctypes.c_size_t         ),
         ("is_quantized"        , ctypes.c_bool           ),
         ("to_float"            , ggml_to_float_p         ),
-        ("from_float"          , ggml_from_float_p       ),
         ("from_float_ref"      , ggml_from_float_p       ),
-        ("from_float_to_mat"   , ggml_from_float_to_mat_p),
-        ("vec_dot"             , ggml_vec_dot_p          ),
-        ("vec_dot_type"        , ctypes.c_int            ),
-        ("nrows"               , ctypes.c_int64          ),
-        ("ncols"               , ctypes.c_int64          ),
-        ("gemv"                , ggml_gemv_p             ),
-        ("gemm"                , ggml_gemm_p             ),
     ]
 ggml_type_traits_p = ctypes.POINTER(ggml_type_traits)
 
@@ -660,9 +647,9 @@ def ggml_is_contiguous(tensor): ...
 
 @ctypes_function(_ggml,
     [ctypes.c_int],
-    ggml_type_traits
+    ggml_type_traits_p
 )
-def ggml_internal_get_type_traits(ttype): ...
+def ggml_get_type_traits(ttype): ...
 
 ## graphs
 
@@ -1307,18 +1294,6 @@ def ggml_soft_max_inplace(ctx, a): ...
 def ggml_soft_max_ext(ctx, a, mask, scale, max_bias): ...
 
 @ctypes_function(_ggml,
-    [ggml_context_p, ggml_tensor_p, ggml_tensor_p],
-    ggml_tensor_p
-)
-def ggml_soft_max_back(ctx, a, b): ...
-
-@ctypes_function(_ggml,
-    [ggml_context_p, ggml_tensor_p, ggml_tensor_p],
-    ggml_tensor_p
-)
-def ggml_soft_max_back_inplace(ctx, a, b): ...
-
-@ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int],
     ggml_tensor_p
 )
@@ -1349,12 +1324,6 @@ def ggml_rope_ext_inplace(ctx, a, b, c, n_dims, mode, n_ctx_orig, freq_base, fre
 def ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow, dims): ...
 
 @ctypes_function(_ggml,
-    [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float],
-    ggml_tensor_p
-)
-def ggml_rope_back(ctx, a, b, c, n_dims, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow): ...
-
-@ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ctypes.c_float, ctypes.c_float],
     ggml_tensor_p
 )
@@ -1365,12 +1334,6 @@ def ggml_clamp(ctx, a, min, max): ...
     ggml_tensor_p
 )
 def ggml_im2col(ctx, a, b, s0, s1, p0, p1, d0, d1, is_2D, dst_type): ...
-
-@ctypes_function(_ggml,
-    [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int],
-    ggml_tensor_p
-)
-def ggml_conv_depthwise_2d(ctx, a, b, s0, s1, p0, p1, d0, d1): ...
 
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int, ctypes.c_int],

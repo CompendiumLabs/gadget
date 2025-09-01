@@ -1,4 +1,4 @@
-# llama implementation
+# llama implementation (llama-3.1)
 
 import numpy as np
 
@@ -6,12 +6,11 @@ from ..ggml import (
     ggml_element_size,
     ggml_add_inplace,
     ggml_get_rows,
-    ggml_transpose,
     ggml_view_1d,
     ggml_view_2d,
     ggml_cont,
 )
-from ..tensor import get_tensor_shape, get_tensor_info
+from ..tensor import get_tensor_shape
 from ..model import GgmlModel, Parameter, State, Tensor
 from .cache import KVCache
 from .layers import (
@@ -107,7 +106,6 @@ class LlamaModel(GgmlModel):
         ctx = self.ctx_graph
 
         # get runtime state
-        batch_size, context_length = self.params['batch_size', 'context_length']
         n_past, n_tokens = self.state['n_past', 'n_tokens']
 
         # get params

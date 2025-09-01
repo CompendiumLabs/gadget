@@ -17,7 +17,7 @@ from .ggml import (
     ggml_new_tensor_4d,
     ggml_backend_tensor_set,
     ggml_backend_tensor_get,
-    ggml_internal_get_type_traits,
+    ggml_get_type_traits,
     ggml_backend_buffer_is_host,
 )
 
@@ -120,8 +120,8 @@ def trim_nelem(shape):
     return shape[:dims]
 
 def get_type_traits(ttype):
-    traits = ggml_internal_get_type_traits(ttype)
-    return traits.blck_size, traits.type_size
+    traits = ggml_get_type_traits(ttype)
+    return traits.contents.blck_size, traits.contents.type_size
 
 def get_tensor_name(tensor):
     value = tensor.contents
@@ -274,7 +274,7 @@ def array_to_tensor(array, tensor, offset=0, strict=True):
         src_p = ctypes.cast(src, ctypes.POINTER(ctypes.c_float))
         dst_p = ctypes.cast(dst, ctypes.c_void_p)
         size = ggml_nelements(tensor)
-        traits = ggml_internal_get_type_traits(ttype)
+        traits = ggml_get_type_traits(ttype)
         traits.from_float(src_p, dst_p, size)
     else:
         src_p = ctypes.cast(src, ctypes.c_void_p)
@@ -306,7 +306,7 @@ def tensor_to_array(tensor, framework='numpy', device='cpu'):
         src_p = ctypes.cast(src, ctypes.c_void_p)
         dst_p = ctypes.cast(dst, ctypes.POINTER(ctypes.c_float))
         size = ggml_nelements(tensor)
-        traits = ggml_internal_get_type_traits(ttype)
+        traits = ggml_get_type_traits(ttype)
         traits.to_float(src_p, dst_p, size)
     else:
         dst_p = ctypes.cast(dst, ctypes.c_void_p)
