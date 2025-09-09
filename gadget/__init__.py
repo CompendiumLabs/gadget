@@ -18,6 +18,7 @@ from .textgen import TextGen, TextChat
 from . import models
 from .models.bert import BertModel
 from .models.llama import LlamaModel
+from .models.names import NAMES
 
 from .ggml import GGMLQuantizationType as T
 from .tensor import get_tensor_info

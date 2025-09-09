@@ -24,9 +24,9 @@ from .layers import (
 ## llama model
 ##
 
-def get_head_dim_kv(gguf):
-    n_head_kv = gguf.get_field('llama.attention.head_count_kv')
-    embed_size_kv = gguf.get_tensor_shape('blk.0.attn_k.weight')[1]
+def get_head_dim_kv(fields, tensors):
+    n_head_kv = fields['llama.attention.head_count_kv']
+    _, (_, embed_size_kv) = tensors['blk.0.attn_k.weight']
     assert embed_size_kv % n_head_kv == 0
     return embed_size_kv // n_head_kv
 
@@ -140,8 +140,7 @@ class LlamaModel(GgmlModel):
             att = norm_layer(ctx, cur, wan, rms=True, eps=layer_norm_rms_eps, name=f'attn{i}_norm')
             att = attention_layer(
                 ctx, att, n_heads_q, mask, wq, wk, wv, wo, positions=positions, n_heads_kv=n_heads_kv,
-                rope_freqs=rope_freqs, rope_base=rope_base, eps=layer_norm_rms_eps, kv_cache=cache,
-                name=f'attn{i}'
+                rope_freqs=rope_freqs, rope_base=rope_base, kv_cache=cache, name=f'attn{i}'
             )
 
             # add layer input to attention
@@ -156,7 +155,7 @@ class LlamaModel(GgmlModel):
 
         # get output tensors
         onw = self.tensors['output_norm.weight']
-        ow = self.tensors.get('output.weight', etok)
+        ow = self.tensors.get('output.weight', etok) # fall back to tied embeddings
 
         # generate output
         cur = norm_layer(ctx, cur, onw, rms=True, eps=layer_norm_rms_eps, name='output_norm')

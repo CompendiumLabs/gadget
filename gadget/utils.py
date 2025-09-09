@@ -56,6 +56,13 @@ class AttrDict(UserDict):
         # get subset dict
         return {k: self[k] for k in keys}
 
+# dictionary that yields value=key when key is not found
+class IdentDict(UserDict):
+    def __getitem__(self, key):
+        if key not in self:
+            return key
+        return super().__getitem__(key)
+
 # = defaultdict(list)
 # + handles popping off maximal list
 # + handles deletion on empty list

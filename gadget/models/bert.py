@@ -92,10 +92,7 @@ class BertModel(GgmlModel):
             ]
 
             # get attention interactions
-            att = attention_layer(
-                ctx, cur, n_heads, mask, wq, wk, wv, wo, bq=bq, bk=bk, bv=bv, bo=bo,
-                eps=layer_norm_eps, name=f'attn{i}'
-            )
+            att = attention_layer(ctx, cur, n_heads, mask, wq, wk, wv, wo, bq=bq, bk=bk, bv=bv, bo=bo, name=f'attn{i}')
 
             # add attention output to current then normalize
             att = ggml_add_inplace(ctx, cur, att)

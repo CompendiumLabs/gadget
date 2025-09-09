@@ -6,7 +6,7 @@ from typing import get_type_hints
 from collections import defaultdict
 
 from .ggml import GGMLQuantizationType
-from .utils import AttrDict
+from .utils import AttrDict, IdentDict
 from .loader import GgufFile
 from .compute import GgmlCompute
 
@@ -38,11 +38,11 @@ def resolve_field(key, *dicts):
     else:
         return key
 
-def eval_parameter(expr, gguf):
+def eval_parameter(expr, fields, tensors):
     if type(expr) is str:
-        return gguf.get_field(expr)
+        return fields[expr]
     elif callable(expr):
-        return expr(gguf)
+        return expr(fields, tensors)
     return expr
 
 ##
@@ -92,11 +92,19 @@ class GgmlModel(GgmlCompute):
         return self
 
     @classmethod
-    def from_gguf(cls, gguf, backend=None, framework=None, **params):
-        # get metadata from gguf
-        weights = {
+    def from_gguf(cls, gguf, names=None, backend=None, framework=None, **params):
+        # make name mappers
+        names = IdentDict({} if names is None else names)
+        rnames = IdentDict({v: k for k, v in names.items()})
+
+        # map field and tensor names
+        fields0 = {names[k]: v for k, v in gguf.fields.items()}
+        weights0 = {names[k]: v for k, v in gguf.tensors.items()}
+
+        # get weights metadata
+        weights0_meta = {
             key: (ttype, shape)
-            for key, (ttype, shape, array) in gguf.tensors.items()
+            for key, (ttype, shape, array) in weights0.items()
         }
 
         # get type hints for model
@@ -104,30 +112,30 @@ class GgmlModel(GgmlCompute):
 
         # get default parameters
         params0 = {
-            k: eval_parameter(v.field, gguf)
+            k: eval_parameter(v.field, fields0, weights0_meta)
             for k, v in hints.items() if type(v) is Parameter
         }
 
         # get state fields
         states = {
-            k: eval_parameter(v.field, gguf)
+            k: eval_parameter(v.field, fields0, weights0_meta)
             for k, v in hints.items() if type(v) is State
         }
 
-        # resolve tensor shapes
-        tensors = {
-            k: (t.ttype, [resolve_field(x, params, params0, gguf.fields) for x in t.shape])
+        # resolve input shapes
+        inputs_meta = {
+            k: (t.ttype, [resolve_field(x, params, params0, fields0) for x in t.shape])
             for k, t in hints.items() if type(t) is Tensor
         }
 
         # create model and graph
         self = cls(
-            gguf.fields | params0 | params, weights | tensors,
+            fields0 | params0 | params, weights0_meta | inputs_meta,
             states, backend=backend, framework=framework
         )
 
         # assign tensors on backend
-        for name, (ttype, shape, tensor) in gguf.tensors.items():
+        for name, (ttype, shape, tensor) in weights0.items():
             self.set_input(name, tensor)
 
         # return model
