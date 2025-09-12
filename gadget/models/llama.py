@@ -9,6 +9,7 @@ from ..ggml import (
     ggml_view_1d,
     ggml_view_2d,
     ggml_cont,
+    ggml_set_output,
 )
 from ..tensor import get_tensor_shape
 from ..model import GgmlModel, Parameter, State, Tensor
@@ -49,6 +50,7 @@ class LlamaModel(GgmlModel):
     batch_size    : Parameter(512)
     context_length: Parameter('llama.context_length')
     head_dim_kv   : Parameter(get_head_dim_kv)
+    lm_head       : Parameter(True)
 
     n_past  : State(0)
     n_tokens: State(None)
@@ -71,25 +73,26 @@ class LlamaModel(GgmlModel):
         # pass to model constructor
         super().__init__(params, tensors, states, **kwargs)
 
-        # set position and mask tensors
+        # set position and mask tensors for single continuous sequence
         self.set_input('positions', np.arange(cl, dtype=np.int32))
         self.set_input('mask', causal_mask(cl, bs))
 
         # make kv cache
         self.kv_cache = KVCache(self.tensors['kcache'], self.tensors['vcache'])
 
-    def __call__(self, tokens):
+    def __call__(self, tokens, **kwargs):
         # accept a raw list
         if type(tokens) is list:
             tokens = np.array(tokens, dtype=np.int32)
 
         # set token batch size
-        self.state['n_tokens'] = len(tokens)
-        n_past, n_tokens = self.state['n_past', 'n_tokens']
+        n_past = self.state['n_past']
+        n_tokens = self.state['n_tokens'] = len(tokens)
 
         # set inputs and evaluate model
-        self.set_input('tokens', tokens, offset=n_past)
-        output = super().__call__()
+        if tokens is not None:
+            self.set_input('tokens', tokens, offset=n_past)
+        output = super().__call__(**kwargs)
 
         # update state
         self.state['n_past'] += n_tokens
@@ -109,10 +112,10 @@ class LlamaModel(GgmlModel):
         n_past, n_tokens = self.state['n_past', 'n_tokens']
 
         # get params
-        n_layers, n_heads_q, n_heads_kv, rope_base, layer_norm_rms_eps = self.params[
-            'llama.block_count'            , 'llama.attention.head_count',
-            'llama.attention.head_count_kv', 'llama.rope.freq_base'      ,
-            'llama.attention.layer_norm_rms_epsilon',
+        n_layers, n_heads_q, n_heads_kv, rope_base, layer_norm_rms_eps, lm_head = self.params[
+            'llama.block_count'                     , 'llama.attention.head_count',
+            'llama.attention.head_count_kv'         , 'llama.rope.freq_base'      ,
+            'llama.attention.layer_norm_rms_epsilon', 'lm_head'                   ,
         ]
 
         # select used input tokens
@@ -122,25 +125,31 @@ class LlamaModel(GgmlModel):
         positions = ggml_view_1d(ctx, positions, n_tokens, psize * n_past, name='positions_batch')
         mask = clip_mask(ctx, mask, n_past, n_tokens, name='mask_batch')
 
-        # get token embeddings
-        etok, rope_freqs = self.tensors['token_embd.weight', 'rope_freqs.weight']
+        # get token embeddings and rope frequencies
+        etok = self.tensors['token_embd.weight']
         cur = ggml_get_rows(ctx, etok, tokens, name='embed=tok')
+        rope_freqs = self.tensors.get('rope_freqs.weight') # optional
+
+        # DEBUG
+        # ggml_set_output(cur)
 
         # loop over layers
         for i in range(n_layers):
             # get layer tensors
-            wq, wk, wv, wo, wan, wu, wd, wg, wn, = self.tensors[
-                f'blk.{i}.attn_q.weight'     , f'blk.{i}.attn_k.weight'   , f'blk.{i}.attn_v.weight'  ,
-                f'blk.{i}.attn_output.weight', f'blk.{i}.attn_norm.weight', f'blk.{i}.ffn_up.weight'  ,
-                f'blk.{i}.ffn_down.weight'   , f'blk.{i}.ffn_gate.weight' , f'blk.{i}.ffn_norm.weight',
+            wq, wk, wv, wo, wan, wu, wd, wg, wn, wqn, wkn = self.tensors[
+                f'blk.{i}.attn_q.weight'     , f'blk.{i}.attn_k.weight'     , f'blk.{i}.attn_v.weight'  ,
+                f'blk.{i}.attn_output.weight', f'blk.{i}.attn_norm.weight'  , f'blk.{i}.ffn_up.weight'  ,
+                f'blk.{i}.ffn_down.weight'   , f'blk.{i}.ffn_gate.weight'   , f'blk.{i}.ffn_norm.weight',
+                f'blk.{i}.attn_q_norm.weight', f'blk.{i}.attn_k_norm.weight',
             ]
 
             # get attention interactions
             cache = self.kv_cache.layer_view(ctx, self.graph, i, n_past)
             att = norm_layer(ctx, cur, wan, rms=True, eps=layer_norm_rms_eps, name=f'attn{i}_norm')
             att = attention_layer(
-                ctx, att, n_heads_q, mask, wq, wk, wv, wo, positions=positions, n_heads_kv=n_heads_kv,
-                rope_freqs=rope_freqs, rope_base=rope_base, kv_cache=cache, name=f'attn{i}'
+                ctx, att, n_heads_q, mask, wq, wk, wv, wo, wqn=wqn, wkn=wkn, positions=positions,
+                layer_norm_eps=layer_norm_rms_eps, n_heads_kv=n_heads_kv, rope_freqs=rope_freqs,
+                rope_base=rope_base, kv_cache=cache, name=f'attn{i}'
             )
 
             # add layer input to attention
@@ -151,15 +160,19 @@ class LlamaModel(GgmlModel):
             cur = feed_forward_layer(ctx, cur, wg, wd, wg=wu, act='silu', name=f'ffn{i}') # notice wg/wu flipped
 
             # add attention output to current tensor
-            cur = ggml_add_inplace(ctx, cur, att)
+            cur = ggml_add_inplace(ctx, cur, att, name=f'output{i}')
+
+            # DEBUG
+            # ggml_set_output(cur)
 
         # get output tensors
         onw = self.tensors['output_norm.weight']
-        ow = self.tensors.get('output.weight', etok) # fall back to tied embeddings
-
-        # generate output
         cur = norm_layer(ctx, cur, onw, rms=True, eps=layer_norm_rms_eps, name='output_norm')
-        cur = linear_layer(ctx, cur, ow, name='output')
 
-        # return logits
+        # apply lm_head for logits
+        if lm_head:
+            ow = self.tensors.get('output.weight', etok) # fall back to tied embeddings
+            cur = linear_layer(ctx, cur, ow, name='output')
+
+        # return logits/embeddings
         return cur

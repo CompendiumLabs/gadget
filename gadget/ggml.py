@@ -38,6 +38,7 @@ from .libs._libggml import (
     ggml_new_graph,
     ggml_build_forward_expand,
     ggml_graph_compute_with_ctx,
+    ggml_set_output,
     # tensors
     ggml_new_tensor_1d,
     ggml_new_tensor_2d,

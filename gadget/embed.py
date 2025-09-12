@@ -5,6 +5,7 @@ import numpy as np
 from transformers import AutoTokenizer
 
 from .ggml import LlamaPoolingType
+from .tensor import get_tensor_shape
 from .models.bert import BertModel
 
 # we don't want to require torch for gadget
@@ -45,16 +46,18 @@ class EmbedBase:
 
         # create input arrays and compute
         tokids, posids, seqids, mask = self.prepare_inputs(tokens)
-        embeds = self.model(tokids, posids, mask, n_tokens=total)
+        embeds = self.model(tokids, positions=posids, mask=mask)
 
         # do requested pooling
         pooling = self.pooling if pooling is None else pooling
         seqids = seqids.to(embeds.device) if self.model.framework == 'torch' else seqids
         embeds = self.pool_embeds(pooling, embeds[:total, :], seqids[:total])
 
-        # return embeddings
-        if normalize:
+        # normalize embeddings
+        if normalize and pooling != LlamaPoolingType.NONE:
             embeds = self.norm_embeds(embeds)
+
+        # return embeddings
         return embeds
 
 class EmbedNumpy(EmbedBase):
@@ -105,32 +108,33 @@ class EmbedTorch(EmbedBase):
     def norm_embeds(embeds):
         return embeds / embeds.norm(dim=-1, keepdim=True)
 
-    # this assumes ordered and contiguous seqids
     @staticmethod
-    def first_indices(values):
+    def reduce_indices(values, first=True):
+        reduce = 'amin' if first else 'amax'
         uvals, indices = values.unique(return_inverse=True)
         first = torch.empty(len(uvals), device=values.device, dtype=torch.int32)
         order = torch.arange(len(values), device=values.device, dtype=torch.int32)
-        first.scatter_reduce_(0, indices, order, reduce='amin')
+        first.scatter_reduce_(0, indices, order, reduce=reduce, include_self=False)
         return first
 
-    # this assumes that sequences are packed in order
+    # this assumes that sequences are ordered and contiguous
     @classmethod
     def pool_embeds(cls, pooling, embeds, seqids):
         if pooling == LlamaPoolingType.NONE:
-            first = cls.first_indices(seqids)
-            pooled = torch.split(embeds, first, 0)
+            first = cls.reduce_indices(seqids, first=True)
+            last = torch.tensor([len(seqids)], device=seqids.device, dtype=torch.int32)
+            segs = torch.cat([first, last], 0).diff().tolist()
+            pooled = torch.split(embeds, segs, 0)
         elif pooling == LlamaPoolingType.MEAN:
             uids, ntoks = torch.unique(seqids, return_counts=True)
             weights = (uids[:, None] == seqids[None, :]).float()
             weights /= ntoks[:, None]
             pooled = weights @ embeds
         elif pooling == LlamaPoolingType.CLS:
-            first = cls.first_indices(seqids)
+            first = cls.reduce_indices(seqids, first=True)
             pooled = embeds[first, :]
         elif pooling == LlamaPoolingType.LAST:
-            rlast = cls.first_indices(seqids[::-1])
-            last = len(seqids) - rlast - 1
+            last = cls.reduce_indices(seqids, first=False)
             pooled = embeds[last, :]
         else:
             raise ValueError('must specify pooling type')

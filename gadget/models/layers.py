@@ -55,8 +55,9 @@ def rope_extended(
     )
 
 def attention_layer(
-    ctx, x, n_heads, mask, wq, wk, wv, wo, bq=None, bk=None, bv=None, bo=None, n_heads_kv=None,
-    rope_freqs=None, rope_base=None, positions=None, alibi=0.0, kv_cache=None, name=None
+    ctx, x, n_heads, mask, wq, wk, wv, wo, bq=None, bk=None, bv=None, bo=None, wqn=None, wkn=None,
+    n_heads_kv=None, rope_freqs=None, rope_base=None, positions=None, alibi=0.0, layer_norm_eps=0.0,
+    kv_cache=None, name=None
 ):
     # get n_heads_q and n_heads_kv
     n_heads_q = n_heads
@@ -97,6 +98,12 @@ def attention_layer(
     k = ggml_reshape_3d(ctx, k, head_dim, n_heads_kv, batch_size, name=f'{name}_k')
     v = ggml_reshape_3d(ctx, v, head_dim, n_heads_kv, batch_size, name=f'{name}_v')
 
+    # apply norm to q/k
+    if wqn is not None:
+        q = norm_layer(ctx, q, wqn, eps=layer_norm_eps, inplace=True, name=f'{name}_q_norm')
+    if wkn is not None:
+        k = norm_layer(ctx, k, wkn, eps=layer_norm_eps, inplace=True, name=f'{name}_k_norm')
+
     # apply rotary position embeddings
     if rope_base is not None:
         q = rope_extended(ctx, q, pos=positions, n_dims=head_dim, freqs=rope_freqs, freq_base=rope_base)
@@ -121,7 +128,7 @@ def attention_layer(
 
     # merge dimensions
     kqv = ggml_permute(ctx, kqv, 0, 2, 1, 3)
-    kqv = ggml_cont_2d(ctx, kqv, embed_dim, batch_size)
+    kqv = ggml_cont_2d(ctx, kqv, embed_dim_q, batch_size)
 
     # apply output layer
     out = linear_layer(ctx, kqv, wo, bias=bo, name=f'{name}_out')

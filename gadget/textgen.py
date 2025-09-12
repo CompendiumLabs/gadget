@@ -48,7 +48,7 @@ class TextGen:
         logits = self.logits(tokens)
         return sample(logits[-1,:], **kwargs)
 
-    def stream_tokens(self, tokens, max_gen=128, **kwargs):
+    def stream_tokens(self, tokens, max_gen=1024, **kwargs):
         batch = tokens
         for _ in range(max_gen):
             tok = self.sample(batch, **kwargs)

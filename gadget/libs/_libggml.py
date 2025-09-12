@@ -145,13 +145,12 @@ def ggml_can_soft_max_ext(t, mask, head_wgt, alibi):
 
 GGML_MAX_DIMS      = 4
 GGML_MAX_PARAMS    = 2048
-GGML_MAX_CONTEXTS  = 64
 GGML_MAX_SRC       = 10
 GGML_MAX_NAME      = 64
 GGML_MAX_OP_PARAMS = 64
+MAX_FREE_BLOCKS    = 256
 
 GGML_DEFAULT_GRAPH_SIZE = 2048
-MAX_FREE_BLOCKS = 256
 
 ##
 ## enums
@@ -670,14 +669,23 @@ def ggml_build_forward_expand(cgraph, tensor): ...
 )
 def ggml_graph_compute_with_ctx(ctx, cgraph, n_threads): ...
 
+# mark nodes to be preserved as graph outputs (prevents allocator reuse)
+@ctypes_function(_ggml,
+    [ggml_tensor_p],
+    None
+)
+def ggml_set_output(tensor): ...
+
 ## tensor ops
 
+@named_output
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p],
     ggml_tensor_p
 )
 def ggml_dup(ctx, a): ...
 
+@named_output
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p],
     ggml_tensor_p
@@ -692,6 +700,7 @@ def ggml_dup_inplace(ctx, a): ...
 )
 def ggml_add(ctx, a, b): ...
 
+@named_output
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ggml_tensor_p],
     ggml_tensor_p

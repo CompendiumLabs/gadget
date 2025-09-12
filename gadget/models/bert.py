@@ -38,9 +38,9 @@ class BertModel(GgmlModel):
     # update state with number of tokens
     # NOTE: this still needs inputs of size batch_size
     #       because we can't set 2d input tensor slices yet
-    def __call__(self, tokens, positions, mask, n_tokens=None):
-        self.state['n_tokens'] = n_tokens if n_tokens is not None else len(tokens)
-        return super().__call__(tokens=tokens, positions=positions, mask=mask)
+    def __call__(self, tokens, **kwargs):
+        self.state['n_tokens'] = len(tokens)
+        return super().__call__(tokens=tokens, **kwargs)
 
     # bert model function
     def forward(self):
@@ -104,6 +104,9 @@ class BertModel(GgmlModel):
             # add attention output to current tensor and normalize
             cur = ggml_add_inplace(ctx, cur, att, name=f'add{i}')
             cur = norm_layer(ctx, cur, wln, bln, eps=layer_norm_eps, inplace=True, name=f'norm{i}')
+
+        # name output for embeddings
+        cur = ggml_set_name(cur, 'embeds')
 
         # return embeddings
         return cur
