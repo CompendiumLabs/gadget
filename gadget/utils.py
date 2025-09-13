@@ -38,7 +38,7 @@ class AttrDict(UserDict):
     def __getitem__(self, key):
         # handle tuple accessor case (prevent recursion)
         if type(key) is tuple:
-            return [super(AttrDict, self).__getitem__(k) for k in key]
+            return [super().__getitem__(k) for k in key]
 
         # key type validation
         if type(key) is not str:
@@ -46,6 +46,17 @@ class AttrDict(UserDict):
 
         # get the key
         return super().__getitem__(key)
+
+    def gets(self, *keys):
+        # key type validation
+        if not all(type(k) is str for k in keys):
+            raise ValueError('Only string keys allowed')
+
+        # get the keys
+        vals = [super().get(k) for k in keys]
+
+        # squeeze if only one key
+        return vals[0] if len(vals) == 1 else vals
 
     # allows globbing with *
     def subset(self, keys):

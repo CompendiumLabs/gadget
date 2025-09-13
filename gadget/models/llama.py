@@ -10,6 +10,7 @@ from ..ggml import (
     ggml_view_2d,
     ggml_cont,
     ggml_set_output,
+    ggml_add,
 )
 from ..tensor import get_tensor_shape
 from ..model import GgmlModel, Parameter, State, Tensor
@@ -131,17 +132,19 @@ class LlamaModel(GgmlModel):
         rope_freqs = self.tensors.get('rope_freqs.weight') # optional
 
         # DEBUG
-        # ggml_set_output(cur)
+        ggml_set_output(cur)
 
         # loop over layers
         for i in range(n_layers):
             # get layer tensors
-            wq, wk, wv, wo, wan, wu, wd, wg, wn, wqn, wkn = self.tensors[
+            wq, wk, wv, wo, wan, wu, wg, wd, wn = self.tensors[
                 f'blk.{i}.attn_q.weight'     , f'blk.{i}.attn_k.weight'     , f'blk.{i}.attn_v.weight'  ,
                 f'blk.{i}.attn_output.weight', f'blk.{i}.attn_norm.weight'  , f'blk.{i}.ffn_up.weight'  ,
-                f'blk.{i}.ffn_down.weight'   , f'blk.{i}.ffn_gate.weight'   , f'blk.{i}.ffn_norm.weight',
-                f'blk.{i}.attn_q_norm.weight', f'blk.{i}.attn_k_norm.weight',
+                f'blk.{i}.ffn_gate.weight'   , f'blk.{i}.ffn_down.weight'   , f'blk.{i}.ffn_norm.weight',
             ]
+            wqn, wkn = self.tensors.gets(
+                f'blk.{i}.attn_q_norm.weight', f'blk.{i}.attn_k_norm.weight',
+            )
 
             # get attention interactions
             cache = self.kv_cache.layer_view(ctx, self.graph, i, n_past)
@@ -157,13 +160,14 @@ class LlamaModel(GgmlModel):
 
             # feed forward network on current
             cur = norm_layer(ctx, att, wn, rms=True, eps=layer_norm_rms_eps, name=f'ffn{i}_norm')
-            cur = feed_forward_layer(ctx, cur, wg, wd, wg=wu, act='silu', name=f'ffn{i}') # notice wg/wu flipped
+            cur = feed_forward_layer(ctx, cur, wu, wg, wd, act='silu', name=f'ffn{i}') # notice wg/wu flipped
 
             # add attention output to current tensor
-            cur = ggml_add_inplace(ctx, cur, att, name=f'output{i}')
+            # DEBUG: this is temporarily not inplace!
+            cur = ggml_add(ctx, cur, att, name=f'output{i+1}')
 
             # DEBUG
-            # ggml_set_output(cur)
+            ggml_set_output(cur)
 
         # get output tensors
         onw = self.tensors['output_norm.weight']

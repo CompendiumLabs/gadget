@@ -143,11 +143,10 @@ activations = {
 
 # without gate layer, just a plain feed forward network
 # with gate layer, it's a gated feed forward network
-def feed_forward_layer(ctx, x, wu, wd, wg=None, bu=None, bd=None, bg=None, act='gelu', name=None):
-    y = linear_layer(ctx, x, wu, bias=bu, name=f'{name}_up')
+def feed_forward_layer(ctx, x, wu, wg, wd, bu=None, bg=None, bd=None, act='gelu', name=None):
+    y = linear_layer(ctx, x, wg, bias=bg, name=f'{name}_gate')
     y = activations[act](ctx, y)
-    if wg is not None:
-        g = linear_layer(ctx, x, wg, bias=bg, name=f'{name}_gate')
-        y = ggml_mul_inplace(ctx, y, g)
+    g = linear_layer(ctx, x, wu, bias=bu, name=f'{name}_up')
+    y = ggml_mul_inplace(ctx, y, g)
     y = linear_layer(ctx, y, wd, bias=bd, name=f'{name}_down')
     return y
