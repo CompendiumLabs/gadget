@@ -3,6 +3,8 @@ from .libs import _libggml
 from .libs.constants import(
     GGMLQuantizationType,
     LlamaPoolingType,
+    LlamaRopeType,
+    ARCH_ROPE_TYPE,
 )
 
 from .libs._libggml import (

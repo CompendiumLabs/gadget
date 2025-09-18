@@ -4,14 +4,11 @@ from math import sqrt
 
 from ..ggml import (
     LlamaPoolingType,
+    ggml_dup,
     ggml_norm,
-    ggml_norm_inplace,
     ggml_rms_norm,
-    ggml_rms_norm_inplace,
     ggml_mul,
-    ggml_mul_inplace,
     ggml_add,
-    ggml_add_inplace,
     ggml_gelu,
     ggml_silu,
     ggml_rope_ext,
@@ -23,41 +20,37 @@ from ..ggml import (
     ggml_reshape_2d,
     ggml_reshape_3d,
     ggml_soft_max_ext,
+    ggml_set_output,
 )
 from ..tensor import get_tensor_shape
 
 def linear_layer(ctx, x, weight, bias=None, name=None):
-    x = ggml_mul_mat(ctx, weight, x, name=f'{name}_mul')
+    x = ggml_mul_mat(ctx, weight, x)
     if bias is not None:
-        x = ggml_add_inplace(ctx, x, bias, name=f'{name}_add')
-    return x
+        x = ggml_add(ctx, x, bias)
+    return ggml_dup(ctx, x, name=name)
 
-def norm_layer(ctx, x, weight, bias=None, eps=0.0, rms=False, inplace=False, name=None):
-    if inplace:
-        norm_func = ggml_rms_norm_inplace if rms else ggml_norm_inplace
-        mul_func, add_func = ggml_mul_inplace, ggml_add_inplace
-    else:
-        norm_func = ggml_rms_norm if rms else ggml_norm
-        mul_func, add_func = ggml_mul, ggml_add
-    x = norm_func(ctx, x, eps, name=f'{name}_norm')
-    x = mul_func(ctx, x, weight, name=f'{name}_mul')
+def norm_layer(ctx, x, weight, bias=None, eps=0.0, rms=False, name=None):
+    norm_func = ggml_rms_norm if rms else ggml_norm
+    x = norm_func(ctx, x, eps)
+    x = ggml_mul(ctx, x, weight)
     if bias is not None:
-        x = add_func(ctx, x, bias, name=f'{name}_add')
-    return x
+        x = ggml_add(ctx, x, bias)
+    return ggml_dup(ctx, x, name=name)
 
 def rope_extended(
-    ctx, x, pos, n_dims, freqs=None, mode=0, n_ctx_orig=0, freq_base=10000.0, freq_scale=1.0,
-    ext_factor=0.0, attn_factor=1.0, beta_fast=0.0, beta_slow=0.0, inplace=True
+    ctx, x, pos, n_dims, mode, freqs=None, n_ctx_orig=0, freq_base=10000.0, freq_scale=1.0,
+    ext_factor=0.0, attn_factor=1.0, beta_fast=32.0, beta_slow=1.0, name=None
 ):
     return ggml_rope_ext(
         ctx, x, pos, freqs, n_dims, mode, n_ctx_orig, freq_base, freq_scale,
-        ext_factor, attn_factor, beta_fast, beta_slow, inplace
+        ext_factor, attn_factor, beta_fast, beta_slow, name=name
     )
 
 def attention_layer(
     ctx, x, n_heads, mask, wq, wk, wv, wo, bq=None, bk=None, bv=None, bo=None, wqn=None, wkn=None,
-    n_heads_kv=None, rope_freqs=None, rope_base=None, positions=None, alibi=0.0, layer_norm_eps=0.0,
-    kv_cache=None, name=None
+    n_heads_kv=None, rope_type=None, rope_freqs=None, freq_base=None, freq_scale=None, positions=None,
+    alibi=0.0, layer_norm_eps=0.0, kv_cache=None, name=None
 ):
     # get n_heads_q and n_heads_kv
     n_heads_q = n_heads
@@ -89,9 +82,9 @@ def attention_layer(
     head_dim = head_dim_q
 
     # compute query, key, value
-    q = linear_layer(ctx, x, wq, bias=bq)
-    k = linear_layer(ctx, x, wk, bias=bk)
-    v = linear_layer(ctx, x, wv, bias=bv)
+    q = linear_layer(ctx, x, wq, bias=bq, name=f'{name}_q0')
+    k = linear_layer(ctx, x, wk, bias=bk, name=f'{name}_k0')
+    v = linear_layer(ctx, x, wv, bias=bv, name=f'{name}_v0')
 
     # reshape to head_dim
     q = ggml_reshape_3d(ctx, q, head_dim, n_heads_q, batch_size, name=f'{name}_q')
@@ -100,14 +93,20 @@ def attention_layer(
 
     # apply norm to q/k
     if wqn is not None:
-        q = norm_layer(ctx, q, wqn, eps=layer_norm_eps, inplace=True, name=f'{name}_q_norm')
+        q = norm_layer(ctx, q, wqn, rms=True, eps=layer_norm_eps, name=f'{name}_q_norm')
     if wkn is not None:
-        k = norm_layer(ctx, k, wkn, eps=layer_norm_eps, inplace=True, name=f'{name}_k_norm')
+        k = norm_layer(ctx, k, wkn, rms=True, eps=layer_norm_eps, name=f'{name}_k_norm')
 
     # apply rotary position embeddings
-    if rope_base is not None:
-        q = rope_extended(ctx, q, pos=positions, n_dims=head_dim, freqs=rope_freqs, freq_base=rope_base)
-        k = rope_extended(ctx, k, pos=positions, n_dims=head_dim, freqs=rope_freqs, freq_base=rope_base)
+    if rope_type is not None:
+        q = rope_extended(
+            ctx, q, positions, head_dim, rope_type, freqs=rope_freqs, freq_base=freq_base,
+            freq_scale=freq_scale, name=f'{name}_q_rope'
+        )
+        k = rope_extended(
+            ctx, k, positions, head_dim, rope_type, freqs=rope_freqs, freq_base=freq_base,
+            freq_scale=freq_scale, name=f'{name}_k_rope'
+        )
 
     # apply kv cache
     if kv_cache is not None:
@@ -147,6 +146,6 @@ def feed_forward_layer(ctx, x, wu, wg, wd, bu=None, bg=None, bd=None, act='gelu'
     y = linear_layer(ctx, x, wg, bias=bg, name=f'{name}_gate')
     y = activations[act](ctx, y)
     g = linear_layer(ctx, x, wu, bias=bu, name=f'{name}_up')
-    y = ggml_mul_inplace(ctx, y, g)
+    y = ggml_mul(ctx, y, g)
     y = linear_layer(ctx, y, wd, bias=bd, name=f'{name}_down')
     return y

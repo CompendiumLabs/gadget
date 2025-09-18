@@ -12,6 +12,11 @@ def list_splitter(text, maxlen):
     for i, j in batch_indices(len(text), maxlen):
         yield text[i:j]
 
+def pad_list(lst, maxlen, value=0):
+    if len(lst) >= maxlen:
+        return lst
+    return lst + [value] * (maxlen - len(lst))
+
 def glob_strings(pattern, strings):
     # make regex pattern
     reg = '^' + pattern.replace('.', '\\.').replace('*', '.*') + '$'

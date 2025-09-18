@@ -3,8 +3,8 @@
 import numpy as np
 
 from ..ggml import (
+    ARCH_ROPE_TYPE,
     ggml_element_size,
-    ggml_add_inplace,
     ggml_get_rows,
     ggml_view_1d,
     ggml_view_2d,
@@ -26,11 +26,22 @@ from .layers import (
 ## llama model
 ##
 
+def get_arch(fields, tensors):
+    return fields['general.architecture'].decode()
+
 def get_head_dim_kv(fields, tensors):
     n_head_kv = fields['llama.attention.head_count_kv']
     _, (_, embed_size_kv) = tensors['blk.0.attn_k.weight']
     assert embed_size_kv % n_head_kv == 0
     return embed_size_kv // n_head_kv
+
+def get_rope_type(fields, tensors):
+    arch = get_arch(fields, tensors)
+    return ARCH_ROPE_TYPE[arch]
+
+def get_freq_scale(fields, tensors):
+    rope_scale = fields.get(f'llama.rope.scale', 0.0)
+    return 1.0 if rope_scale == 0.0 else 1/float(rope_scale)
 
 def causal_mask(context_length, batch_size):
     minctx = int(batch_size) - int(context_length) # cast to int to avoid overflow
@@ -51,6 +62,10 @@ class LlamaModel(GgmlModel):
     batch_size    : Parameter(512)
     context_length: Parameter('llama.context_length')
     head_dim_kv   : Parameter(get_head_dim_kv)
+
+    rope_type     : Parameter(get_rope_type)
+    freq_base     : Parameter('llama.rope.freq_base')
+    freq_scale    : Parameter(get_freq_scale)
     lm_head       : Parameter(True)
 
     n_past  : State(0)
@@ -112,11 +127,15 @@ class LlamaModel(GgmlModel):
         # get runtime state
         n_past, n_tokens = self.state['n_past', 'n_tokens']
 
-        # get params
-        n_layers, n_heads_q, n_heads_kv, rope_base, layer_norm_rms_eps, lm_head = self.params[
-            'llama.block_count'                     , 'llama.attention.head_count',
-            'llama.attention.head_count_kv'         , 'llama.rope.freq_base'      ,
-            'llama.attention.layer_norm_rms_epsilon', 'lm_head'                   ,
+        # get intrinsic params
+        n_layers, n_heads_q, n_heads_kv, layer_norm_rms_eps = self.params[
+            'llama.block_count'            , 'llama.attention.head_count'            ,
+            'llama.attention.head_count_kv', 'llama.attention.layer_norm_rms_epsilon',
+        ]
+
+        # get derived params
+        lm_head, rope_type, freq_base, freq_scale = self.params[
+            'lm_head', 'rope_type', 'freq_base', 'freq_scale'
         ]
 
         # select used input tokens
@@ -130,9 +149,6 @@ class LlamaModel(GgmlModel):
         etok = self.tensors['token_embd.weight']
         cur = ggml_get_rows(ctx, etok, tokens, name='embed=tok')
         rope_freqs = self.tensors.get('rope_freqs.weight') # optional
-
-        # DEBUG
-        ggml_set_output(cur)
 
         # loop over layers
         for i in range(n_layers):
@@ -149,25 +165,23 @@ class LlamaModel(GgmlModel):
             # get attention interactions
             cache = self.kv_cache.layer_view(ctx, self.graph, i, n_past)
             att = norm_layer(ctx, cur, wan, rms=True, eps=layer_norm_rms_eps, name=f'attn{i}_norm')
+
             att = attention_layer(
                 ctx, att, n_heads_q, mask, wq, wk, wv, wo, wqn=wqn, wkn=wkn, positions=positions,
-                layer_norm_eps=layer_norm_rms_eps, n_heads_kv=n_heads_kv, rope_freqs=rope_freqs,
-                rope_base=rope_base, kv_cache=cache, name=f'attn{i}'
+                layer_norm_eps=layer_norm_rms_eps, n_heads_kv=n_heads_kv, rope_type=rope_type,
+                rope_freqs=rope_freqs, freq_base=freq_base, freq_scale=freq_scale, kv_cache=cache,
+                name=f'attn{i}'
             )
 
             # add layer input to attention
-            att = ggml_add_inplace(ctx, att, cur)
+            att = ggml_add(ctx, att, cur)
 
             # feed forward network on current
             cur = norm_layer(ctx, att, wn, rms=True, eps=layer_norm_rms_eps, name=f'ffn{i}_norm')
             cur = feed_forward_layer(ctx, cur, wu, wg, wd, act='silu', name=f'ffn{i}') # notice wg/wu flipped
 
             # add attention output to current tensor
-            # DEBUG: this is temporarily not inplace!
             cur = ggml_add(ctx, cur, att, name=f'output{i+1}')
-
-            # DEBUG
-            ggml_set_output(cur)
 
         # get output tensors
         onw = self.tensors['output_norm.weight']

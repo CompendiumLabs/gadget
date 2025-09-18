@@ -19,15 +19,17 @@ except ImportError:
 ##
 
 class EmbedBase:
-    def __init__(self, gguf_path, model_id, pooling=None, model_class=BertModel, **kwargs):
+    def __init__(self, gguf_path, model_id, pooling=None, causal_mask=False, model_class=BertModel, **kwargs):
         self.toker = AutoTokenizer.from_pretrained(model_id)
         self.model = model_class.from_path(gguf_path, **kwargs)
         self.batch_size = self.model.params['batch_size']
 
-        # assign pooling type
+        # detect pooling type
         if pooling is None:
             pooling = self.model.params.get('bert.pooling_type', LlamaPoolingType.NONE)
 
+        # model specific kwargs
+        self.causal_mask = causal_mask
         self.pooling = LlamaPoolingType(pooling)
 
     def tokenize(self, texts):
@@ -60,6 +62,7 @@ class EmbedBase:
         # return embeddings
         return embeds
 
+# TODO: out of date (pooling, causal mask)
 class EmbedNumpy(EmbedBase):
     def __init__(self, *args, **kwargs):
         return super().__init__(*args, framework='numpy', **kwargs)
@@ -147,7 +150,10 @@ class EmbedTorch(EmbedBase):
         tokens = torch.cat([*(torch.tensor(t, dtype=torch.int32) for t in tokens), padding])
         posits = torch.cat([*(torch.arange(n, dtype=torch.int32) for n in ntoks), padding])
         seqids = torch.cat([torch.repeat_interleave(torch.arange(nseqs, dtype=torch.int32), ntoks), padding - 1])
-        mask = torch.where(seqids[:, None] == seqids[None, :], 0.0, -torch.inf).float()
+        mask_bool = (seqids[:, None] == seqids[None, :]) # & (seqids[:, None] != -1) & (seqids[None, :] != -1)
+        if self.causal_mask:
+            mask_bool &= posits[None, :] <= posits[:, None]
+        mask = torch.where(mask_bool, 0.0, -torch.inf).float()
         return tokens, posits, seqids, mask
 
 ##

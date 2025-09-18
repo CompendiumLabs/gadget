@@ -669,7 +669,6 @@ def ggml_build_forward_expand(cgraph, tensor): ...
 )
 def ggml_graph_compute_with_ctx(ctx, cgraph, n_threads): ...
 
-# mark nodes to be preserved as graph outputs (prevents allocator reuse)
 @ctypes_function(_ggml,
     [ggml_tensor_p],
     None
@@ -1314,12 +1313,14 @@ def ggml_rope(ctx, a, b, n_dims, mode): ...
 )
 def ggml_rope_inplace(ctx, a, b, n_dims, mode): ...
 
+@named_output
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float],
     ggml_tensor_p
 )
 def ggml_rope_ext(ctx, a, b, c, n_dims, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow): ...
 
+@named_output
 @ctypes_function(_ggml,
     [ggml_context_p, ggml_tensor_p, ggml_tensor_p, ggml_tensor_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float],
     ggml_tensor_p
