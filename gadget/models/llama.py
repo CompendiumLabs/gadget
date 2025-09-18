@@ -63,6 +63,7 @@ class LlamaModel(GgmlModel):
     context_length: Parameter('llama.context_length')
     head_dim_kv   : Parameter(get_head_dim_kv)
 
+    causal_attn   : Parameter('llama.attention.causal', True)
     rope_type     : Parameter(get_rope_type)
     freq_base     : Parameter('llama.rope.freq_base')
     freq_scale    : Parameter(get_freq_scale)

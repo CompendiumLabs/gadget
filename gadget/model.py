@@ -15,8 +15,8 @@ from .compute import GgmlCompute
 ##
 
 class Parameter:
-    def __init__(self, field):
-        self.field = field
+    def __init__(self, field, default=None):
+        self.field = field if default is None else (field, default)
 
 class State:
     def __init__(self, field):
@@ -41,6 +41,9 @@ def resolve_field(key, *dicts):
 def eval_parameter(expr, fields, tensors):
     if type(expr) is str:
         return fields[expr]
+    elif type(expr) is tuple:
+        field, default = expr
+        return fields.get(field, default)
     elif callable(expr):
         return expr(fields, tensors)
     return expr
