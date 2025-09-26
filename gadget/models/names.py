@@ -11,6 +11,7 @@ NAMES_QWEN3_EMBED = {
     'qwen3.attention.head_count_kv'         : 'llama.attention.head_count_kv',
     'qwen3.rope.freq_base'                  : 'llama.rope.freq_base',
     'qwen3.attention.layer_norm_rms_epsilon': 'llama.attention.layer_norm_rms_epsilon',
+    'qwen3.pooling_type'                    : 'bert.pooling_type',
 }
 
 # final name map

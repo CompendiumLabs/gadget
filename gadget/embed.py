@@ -21,7 +21,7 @@ except ImportError:
 class EmbedBase:
     def __init__(self, gguf_path, model_id, pooling=None, causal=None, model_class=BertModel, **kwargs):
         self.toker = AutoTokenizer.from_pretrained(model_id)
-        self.model = model_class.from_path(gguf_path, lm_head=False, **kwargs)
+        self.model = model_class.from_path(gguf_path, **kwargs)
         self.batch_size = self.model.params['batch_size']
 
         # detect pooling type
@@ -49,6 +49,9 @@ class EmbedBase:
         # check for batch fit
         if total > self.batch_size:
             raise ValueError(f'Number of tokens ({total}) > batch_size ({self.batch_size})')
+
+        # reset model state
+        self.model.reset()
 
         # create input arrays and compute
         tokids, posids, seqids, mask = self.prepare_inputs(tokens)

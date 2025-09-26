@@ -67,6 +67,7 @@ class LlamaPoolingType(IntEnum):
     MEAN = 1,
     CLS  = 2,
     LAST = 3,
+    RANK = 4,
 
 # rope types
 class LlamaRopeType(IntEnum):

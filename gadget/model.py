@@ -152,6 +152,9 @@ class GgmlModel(GgmlCompute):
     def forward(self):
         raise NotImplementedError('forward method must be implemented')
 
+    def reset(self):
+        pass
+
     def rebuild_graph(self):
         super().create_graph(freeze(self.forward))
 

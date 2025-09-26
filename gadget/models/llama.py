@@ -67,7 +67,6 @@ class LlamaModel(GgmlModel):
     rope_type     : Parameter(get_rope_type)
     freq_base     : Parameter('llama.rope.freq_base')
     freq_scale    : Parameter(get_freq_scale)
-    lm_head       : Parameter(True)
 
     n_past  : State(0)
     n_tokens: State(None)
@@ -134,9 +133,9 @@ class LlamaModel(GgmlModel):
             'llama.attention.head_count_kv', 'llama.attention.layer_norm_rms_epsilon',
         ]
 
-        # get derived params
-        lm_head, rope_type, freq_base, freq_scale = self.params[
-            'lm_head', 'rope_type', 'freq_base', 'freq_scale'
+        # get rope params
+        rope_type, freq_base, freq_scale = self.params[
+            'rope_type', 'freq_base', 'freq_scale'
         ]
 
         # select used input tokens
@@ -188,9 +187,15 @@ class LlamaModel(GgmlModel):
         onw = self.tensors['output_norm.weight']
         cur = norm_layer(ctx, cur, onw, rms=True, eps=layer_norm_rms_eps, name='output_norm')
 
+        # apply classification head
+        # TODO: handle pooling before classification head (and in general here)
+        cow = self.tensors.get('cls.output.weight')
+        if cow is not None:
+            cur = linear_layer(ctx, cur, cow, name='cls_output')
+
         # apply lm_head for logits
-        if lm_head:
-            ow = self.tensors.get('output.weight', etok) # fall back to tied embeddings
+        ow = self.tensors.get('output.weight')
+        if ow:
             cur = linear_layer(ctx, cur, ow, name='output')
 
         # return logits/embeddings
